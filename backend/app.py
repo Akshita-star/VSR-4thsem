@@ -109,7 +109,7 @@ if 'running' not in st.session_state:
 col_cam, col_out = st.columns([1.4, 0.9], gap="large")
 
 with col_cam:
-    st.markdown('<div class="box-label">// CAMERA FEED</div>', unsafe_allow_html=True)
+    st.markdown('<div class="box-label"></div>', unsafe_allow_html=True)
     cam_placeholder = st.empty()
     pred_placeholder = st.empty()
 
@@ -123,7 +123,7 @@ with col_cam:
 
 with col_out:
     st.markdown("<br><br><br><br>", unsafe_allow_html=True)
-    st.markdown('<div class="box-label">// TRANSCRIPTION OUTPUT</div>', unsafe_allow_html=True)
+    st.markdown('<div class="box-label"></div>', unsafe_allow_html=True)
     output_placeholder = st.empty()
 
 
