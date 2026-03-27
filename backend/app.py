@@ -1,14 +1,16 @@
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-import av
-import cv2
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-st.set_page_config(page_title="LipSync AI", layout="wide")
+import streamlit as st
+import cv2
+from inference import load_model, predict
+
+st.set_page_config(page_title="VSR System", layout="wide")
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@300;400;600;700;900&display=swap');
-
 :root {
     --bg-primary: #020408;
     --bg-card: #0a1628;
@@ -17,7 +19,6 @@ st.markdown("""
     --text-dim: #4a7a8a;
     --grid-color: rgba(0, 245, 255, 0.04);
 }
-
 html, body, [data-testid="stAppViewContainer"], * {
     background-color: var(--bg-primary) !important;
     color: #e0f7ff !important;
@@ -31,8 +32,6 @@ html, body, [data-testid="stAppViewContainer"], * {
 }
 [data-testid="stHeader"] { background: transparent !important; }
 .block-container { padding: 1.5rem 2rem !important; max-width: 1400px; }
-
-/* ── Header ── */
 .header-banner {
     text-align: center;
     padding: 2rem 0 1.5rem;
@@ -44,57 +43,16 @@ html, body, [data-testid="stAppViewContainer"], * {
     position: absolute;
     bottom: 0; left: 10%; right: 10%;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+    background: linear-gradient(90deg, transparent, var(--accent-green), transparent);
 }
 .header-title {
     font-family: 'Roboto Slab', serif;
     font-size: 3rem;
     font-weight: 900;
     letter-spacing: 0.2em;
-    background: linear-gradient(135deg, #00f5ff 0%, #00ff88 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    filter: drop-shadow(0 0 20px rgba(0, 245, 255, 0.4));
+    color: #00ff88;
+    filter: drop-shadow(0 0 20px rgba(0, 255, 136, 0.4));
     margin: 0;
-}
-.header-sub {
-    font-family: 'Roboto Slab', serif;
-    font-size: 0.75rem;
-    color: var(--text-dim);
-    letter-spacing: 0.4em;
-    margin-top: 0.5rem;
-}
-
-/* ── Status pills ── */
-.status-row {
-    display: flex;
-    justify-content: center;
-    gap: 2rem;
-    margin-bottom: 2.5rem;
-}
-.status-pill {
-    font-family: 'Roboto Slab', serif;
-    font-size: 0.72rem;
-    padding: 0.3rem 1rem;
-    border-radius: 2px;
-    letter-spacing: 0.1em;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-.pill-online { border: 1px solid #00ff88; color: #00ff88; background: rgba(0,255,136,0.07); }
-.pill-model  { border: 1px solid #00f5ff; color: #00f5ff; background: rgba(0,245,255,0.07); }
-.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-.dot-green { background: #00ff88; box-shadow: 0 0 6px #00ff88; animation: pulse 2s infinite; }
-.dot-cyan  { background: #00f5ff; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-/* ── Camera column: center the webrtc widget ── */
-.cam-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
 }
 .box-label {
     font-family: 'Roboto Slab', serif;
@@ -104,8 +62,6 @@ html, body, [data-testid="stAppViewContainer"], * {
     margin-bottom: 0.7rem;
     text-transform: uppercase;
 }
-
-/* ── Output box ── */
 .output-box {
     background: var(--bg-card);
     border: 1px solid rgba(0,245,255,0.18);
@@ -113,11 +69,9 @@ html, body, [data-testid="stAppViewContainer"], * {
     border-radius: 3px;
     padding: 1.2rem 1.4rem;
     min-height: 140px;
-    max-width: 420px;
     font-family: 'Roboto Slab', serif;
-    font-size: 0.95rem;
+    font-size: 1.1rem;
     color: var(--accent-cyan);
-    position: relative;
 }
 .cursor-blink {
     display: inline-block;
@@ -129,73 +83,103 @@ html, body, [data-testid="stAppViewContainer"], * {
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 .output-placeholder { color: var(--text-dim); font-size: 0.8rem; letter-spacing: 0.1em; }
-
-/* ── Right column layout ── */
-.right-col {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    height: 100%;
-    padding-top: 2rem;
-}
-
-/* webrtc widget sizing */
-video { border-radius: 3px; }
-
 #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ──
+@st.cache_resource
+def get_model():
+    return load_model()
+
+model = get_model()
+
+
 st.markdown("""
 <div class="header-banner">
-    <div class="header-title">LIPSYNC · AI</div>
-    <div class="header-sub">VISUAL SPEECH RECOGNITION SYSTEM · V0.1 · DEEP LEARNING</div>
-</div>
-<div class="status-row">
-    <span class="status-pill pill-online"><span class="dot dot-green"></span> SYSTEM ONLINE</span>
-    <span class="status-pill pill-model"><span class="dot dot-cyan"></span> MODEL: NOT LOADED</span>
+    <div class="header-title">VSR : Visual Speech Recognition System</div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Layout ──
-col_cam, col_out = st.columns([1.4, 0.9], gap="large")
 
-class VideoProcessor(VideoProcessorBase):
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1)
-        h, w = img.shape[:2]
-        # corner brackets HUD
-        c = (0, 245, 255)
-        L = 22
-        for pt, dx, dy in [((10,10),1,1),((w-10,10),-1,1),((10,h-10),1,-1),((w-10,h-10),-1,-1)]:
-            x, y = pt
-            cv2.line(img, (x,y), (x+dx*L, y), c, 2)
-            cv2.line(img, (x,y), (x, y+dy*L), c, 2)
-        cv2.circle(img, (w-28, 22), 5, (0,0,220), -1)
-        cv2.putText(img, "REC", (w-20,27), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,180), 1)
-        cv2.putText(img, "LIP DETECTION: ACTIVE", (12, h-12), cv2.FONT_HERSHEY_SIMPLEX, 0.37, (0,245,255), 1)
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+if 'prediction' not in st.session_state:
+    st.session_state.prediction = None
+if 'running' not in st.session_state:
+    st.session_state.running = False
+
+col_cam, col_out = st.columns([1.4, 0.9], gap="large")
 
 with col_cam:
     st.markdown('<div class="box-label">// CAMERA FEED</div>', unsafe_allow_html=True)
-    webrtc_streamer(
-        key="lipsync",
-        video_processor_factory=VideoProcessor,
-        rtc_configuration=RTCConfiguration({
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        }),
-        media_stream_constraints={"video": True, "audio": False},
-    )
+    cam_placeholder = st.empty()
+    pred_placeholder = st.empty()
+
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        if st.button("▶ START", use_container_width=True):
+            st.session_state.running = True
+    with btn_col2:
+        if st.button("■ STOP", use_container_width=True):
+            st.session_state.running = False
 
 with col_out:
-    # push output box to bottom
     st.markdown("<br><br><br><br>", unsafe_allow_html=True)
     st.markdown('<div class="box-label">// TRANSCRIPTION OUTPUT</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="output-box">
-        <span class="output-placeholder">AWAITING LIP MOVEMENT DATA...</span>
-        <span class="cursor-blink"></span>
-    </div>
-    """, unsafe_allow_html=True)
+    output_placeholder = st.empty()
+
+
+def show_output(prediction):
+    if prediction:
+        output_placeholder.markdown(f"""
+        <div class="output-box">
+            {prediction}<span class="cursor-blink"></span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        output_placeholder.markdown("""
+        <div class="output-box">
+            <span class="output-placeholder">AWAITING LIP MOVEMENT DATA...</span>
+            <span class="cursor-blink"></span>
+        </div>
+        """, unsafe_allow_html=True)
+
+show_output(st.session_state.prediction)
+if st.session_state.running:
+    cap = cv2.VideoCapture(0)
+
+    while st.session_state.running:
+        frames_collected = []
+
+        for _ in range(75):
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame = cv2.flip(frame, 1)
+            h, w = frame.shape[:2]
+
+            c = (0, 245, 255)
+            L = 22
+            for pt, dx, dy in [((10,10),1,1),((w-10,10),-1,1),((10,h-10),1,-1),((w-10,h-10),-1,-1)]:
+                x, y = pt
+                cv2.line(frame, (x,y), (x+dx*L, y), c, 2)
+                cv2.line(frame, (x,y), (x, y+dy*L), c, 2)
+            cv2.circle(frame, (w-28, 22), 5, (0,0,220), -1)
+            cv2.putText(frame, "REC", (w-20,27), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,180), 1)
+            cv2.putText(frame, "LIP DETECTION: ACTIVE", (12, h-12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.37, (0,245,255), 1)
+
+            frames_collected.append(frame.copy())
+
+            if len(frames_collected) % 5 == 0:
+                import numpy as np
+                rgb = frame[:, :, ::-1]  
+                cam_placeholder.image(rgb, channels="RGB", width=700)
+
+        # Predict on collected frames
+        if len(frames_collected) > 0:
+            result = predict(model, frames_collected)
+            st.session_state.prediction = result
+            show_output(result)
+
+    cap.release()
+    cam_placeholder.empty()
